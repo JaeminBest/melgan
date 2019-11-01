@@ -1,0 +1,41 @@
+version: "3.6"
+
+services:
+  mindlogic-melgan-no-lj:
+    build:
+      context: .
+    image: mindlogic-melgan-no
+    shm_size: "12gb"
+    networks: ["mindlogic-network"]
+    restart: always
+    ports:
+      - "6001:6001"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    env_file:
+      - "./.env"
+    volumes:
+      - "./:/app"
+      - "/home/mindlogic-workstation-3/vocoder_data/LJSpeech-1.1/wavs:/data"
+      - "./asset1:/app/data"
+
+  mindlogic-melgan-no-custom:
+    build:
+      context: .
+    image: mindlogic-melgan-no
+    shm_size: "12gb"
+    networks: ["mindlogic-network"]
+    restart: always
+    ports:
+      - "6002:6002"
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+      - CUSTOM=1
+    env_file:
+      - "./.env"
+    volumes:
+      - "./:/app"
+      - "/home/mindlogic-workstation-3/vocoder_data/custom:/data"
+      - "./asset2:/app/data"
+
+networks: { mindlogic-network: {} }

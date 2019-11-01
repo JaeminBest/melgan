@@ -1,12 +1,12 @@
 data: # root path of train/validation data (in absolute path)
-  train: ''
-  validation: ''
+  train: "/app/data/final_train.txt" # validation file
+  validation: "/app/data/final_val.txt" # training file
 ---
 train:
   rep_discriminator: 1
   num_workers: 32
   batch_size: 16
-  optimizer: 'adam'
+  optimizer: "adam"
   adam:
     lr: 0.0001
     beta1: 0.5
@@ -30,5 +30,5 @@ log:
   summary_interval: 1
   validation_interval: 5
   save_interval: 25
-  chkpt_dir: 'chkpt'
-  log_dir: 'logs'
+  chkpt_dir: "chkpt"
+  log_dir: "logs"

@@ -8,6 +8,17 @@ from torch.utils.data import Dataset, DataLoader
 from utils.utils import read_wav_np
 
 
+def files_to_list(filename):
+    """
+    Takes a text file of filenames and makes a list of filenames
+    """
+    with open(filename, encoding="utf-8") as f:
+        files = f.readlines()
+
+    files = [f.rstrip() for f in files]
+    return files
+
+
 def create_dataloader(hp, args, train):
     dataset = MelFromDisk(hp, args, train)
 
@@ -25,7 +36,8 @@ class MelFromDisk(Dataset):
         self.args = args
         self.train = train
         self.path = hp.data.train if train else hp.data.validation
-        self.wav_list = glob.glob(os.path.join(self.path, '**', '*.wav'), recursive=True)
+        #self.wav_list = glob.glob(os.path.join(self.path, '**', '*.wav'), recursive=True)
+        self.wav_list = files_to_list(self.path)
         self.mel_segment_length = hp.audio.segment_length // hp.audio.hop_length + 2
         self.mapping = [i for i in range(len(self.wav_list))]
 

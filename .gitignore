@@ -1,5 +1,7 @@
 # IDE configuration
 .idea/
+asset1/*
+asset2/*
 
 # configuration
 config/*
