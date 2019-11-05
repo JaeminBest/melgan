@@ -38,13 +38,13 @@ def main(hp, args):
         torch.save(mel, melpath)
 
 
-if __name__ == '__main__':
+def preprocess(data_path):
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', type=str, required=True,
+    parser.add_argument('-c', '--config', type=str, default='config/default.yaml' if not os.environ.get('CUSTOM','') else 'config/custom.yaml',
                         help="yaml file for config.")
-    parser.add_argument('-d', '--data_path', type=str, required=True,
+    parser.add_argument('-d', '--data_path', type=str, default=data_path,
                         help="root directory of wav files")
-    args = parser.parse_args()
+    args = parser.parse_args([])
     hp = HParam(args.config)
 
     main(hp, args)

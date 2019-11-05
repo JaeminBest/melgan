@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import argparse
+import shutil
 
 from utils.train import train
 from utils.hparams import HParam
@@ -11,7 +12,7 @@ from datasets.dataloader import create_dataloader
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', type=str, required=True,
+    parser.add_argument('-c', '--config', type=str, default='config/default.yaml' if not os.environ.get('CUSTOM','') else 'config/custom.yaml',
                         help="yaml file for configuration")
     parser.add_argument('-p', '--checkpoint_path', type=str, default=None,
                         help="path of checkpoint pt file to resume training")
@@ -22,9 +23,15 @@ if __name__ == '__main__':
     hp = HParam(args.config)
     with open(args.config, 'r') as f:
         hp_str = ''.join(f.readlines())
-
+    
     pt_dir = os.path.join(hp.log.chkpt_dir, args.name)
     log_dir = os.path.join(hp.log.log_dir, args.name)
+    if os.path.isfile(pt_dir):
+        os.system("cp -R {} {}".format(pt_dir,'/app/backup/ckpt'))
+        shutil.rmtree(pt_dir)
+    if os.path.isfile(log_dir):
+        os.system("cp -R {} {}".format(log_dir,'/app/backup/log'))
+        shutil.rmtree(log_dir)
     os.makedirs(pt_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
 

@@ -56,6 +56,39 @@ class MelFromDisk(Dataset):
         random.shuffle(self.mapping)
 
     def my_getitem(self, idx):
+        if os.environ.get('CUSTOM',''):
+            #print("enter",flush=True)
+            melpath = self.wav_list[idx]
+            npzzz = np.load(melpath)
+            audio = npzzz['audio']
+            mel = npzzz['mel'].T
+            
+            if len(audio) < self.hp.audio.segment_length + self.hp.audio.pad_short:
+                audio = np.pad(audio, (0, self.hp.audio.segment_length + self.hp.audio.pad_short - len(audio)), \
+                        mode='constant', constant_values=0.0)
+
+            audio = torch.from_numpy(audio).unsqueeze(0)
+            mel = torch.from_numpy(mel).squeeze(0)
+
+            if self.train:
+                #print("=============================",flush=True)
+                
+                max_mel_start = mel.size(1) - self.mel_segment_length
+                #print("max_mel_start: ",max_mel_start,flush=True)
+                try: mel_start = random.randint(0, max_mel_start)
+                except: print("mel_start: ",mel_start,flush=True)
+                mel_end = mel_start + self.mel_segment_length
+                #print("mel_end: ",mel_end,flush=True)
+                mel = mel[:, mel_start:mel_end]
+                #print("mel_shape: ",mel.shape,flush=True)
+                audio_start = mel_start * self.hp.audio.hop_length
+                #print("audio_start: ",audio_start,flush=True)
+                audio = audio[:, audio_start:audio_start+self.hp.audio.segment_length]
+                #print("audio_shape: ",audio.shape,flush=True)
+                #print("=============================",flush=True)
+            audio = audio + (1/32768) * torch.randn_like(audio)
+            return mel, audio
+        
         wavpath = self.wav_list[idx]
         melpath = wavpath.replace('.wav', '.mel')
         sr, audio = read_wav_np(wavpath)

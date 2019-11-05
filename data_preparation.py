@@ -21,12 +21,11 @@ import json
 import librosa
 import shutil
 import torch
+import numpy as np
 import random
 
 from utils.credential import s3
-from utils.audio import convert_sr
-
-SR = 22050
+from preprocess import preprocess
 
 
 def span_path(args,full_filepath):
@@ -41,8 +40,10 @@ def span_path(args,full_filepath):
   return new_path
 
 def reconstruct_path(key):
-  splits = key.split('-')
-  return "speaker-{}/file-{}/wav/{}".format(splits[0],splits[1],splits[2])
+  ky = key.split('.npz-2')[0]
+  splits = ky.split('-')
+  #print(splits)
+  return "speaker-{}/file-{}/mel/{}.npz-2".format(splits[0],splits[1],splits[2])
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -57,22 +58,35 @@ def parse_args():
   return args
 
 # assume that data already spanned
-def invalid_data_checker(args):
+def invalid_data_checker(args,custom_flg):
   print("start invalid data checker",flush=True)
+  search_key = '.npz-2' if custom_flg else '.wav'
   for rootpath,dirs,files in os.walk(str(args.folder)):
     for file in files:
-      if file.find('.wav')==-1:
-        continue
       filepath = os.path.join(rootpath,file)
-      print(filepath,flush=True)
-      path_cvt = Path(filepath)
-      if args.folder==path_cvt.parents[0]:
-        data, sampling_rate = load(filepath, sr=SR)
-        if data.shape==(0,):
-          print("deleted!!!!!!",flush=True)
-          os.remove(filepath)
-          os.remove(filepath.split('.wav')[0]+'.mel')
-          continue
+      if file.find(search_key)==-1:
+        if search_key=='.wav':
+          if file.find('.mel')==-1:
+            os.remove(filepath)
+        continue
+      if custom_flg and (not range_test(filepath)):
+        os.remove(filepath)
+        print("deleted!!", filepath,flush=True)
+        continue
+      
+      
+def range_test(melpath):
+  npzzz = np.load(melpath)
+  audio = npzzz['audio']
+  mel = npzzz['mel'].T
+  mel = torch.from_numpy(mel).squeeze(0)
+  mel_segment_length = 16000 // 256 + 2
+  max_mel_start = mel.size(1) - mel_segment_length
+  try:
+    mel_start = random.randint(0, max_mel_start)
+  except:
+    return False
+  return True
 
 
 def main():
@@ -96,22 +110,20 @@ def main():
         if parse_type=='nltk':
           dirpath = args.folder / Path('speaker-{}'.format(parse_id))
           os.makedirs(str(dirpath),exist_ok=True)
-          os.system("aws s3 cp s3://mindlogic-tts-cache/nltk/speaker-{} {} --recursive".format(parse_id,os.path.join(*dirpath.parts)))
+          os.system("aws s3 cp s3://mindlogic-tts/nltk/speaker-{} {} --recursive".format(parse_id,os.path.join(*dirpath.parts)))
         else:
           dirpath = args.folder/Path('speaker-{}'.format(parse_id))
           os.makedirs(str(dirpath),exist_ok=True)
-          os.system("aws s3 cp s3://mindlogic-tts-cache/celeb/speaker-{} {} --recursive".format(parse_id,os.path.join(*dirpath.parts)))
+          os.system("aws s3 cp s3://mindlogic-tts/celeb/speaker-{} {} --recursive".format(parse_id,os.path.join(*dirpath.parts)))
       
       # rearrange to structure
       print("rearrange start",flush=True)
       for rootpath,dirs,files in os.walk(str(args.folder)):
         for file in files:
-          if file.find('.wav')==-1:
-            continue
           filepath = os.path.join(rootpath,file)
-          convert_sr(filepath,SR)
-          new_path = span_path(args,filepath)
-    
+          if (file.find('.npz-2')!=-1):
+            new_path = span_path(args,filepath)
+
       print("dummy clean start",flush=True)
       # delete dummy directory
       for data in data_list:
@@ -120,18 +132,12 @@ def main():
         dirpath = os.path.join(args.folder,'speaker-{}'.format(parse_id))
         if os.path.isdir(dirpath):
           shutil.rmtree(dirpath)
-      
+    
     else:
-      print("building list of files...",flush=True)
-      for rootpath,dirs,files in os.walk(str(args.folder)):
-        for file in files:
-          if file.find('.wav')==-1:
-            continue
-          filepath = os.path.join(rootpath,file)
-          convert_sr(filepath,SR)
+      preprocess(str(args.folder))
   
   if args.s:
-    invalid_data_checker(args)
+    invalid_data_checker(args,args.c)
     print("training/validation file selection start",flush=True)
     if os.path.isfile(args.train_file):
       os.remove(args.train_file)
@@ -164,17 +170,17 @@ def main():
           os.makedirs(str(dirpath),exist_ok=True)
           spkr_dataset = bucket.objects.filter(Prefix='celeb/speaker-{}/'.format(parse_id)).all()
         
-        tmp_tot_list = ["/".join(el.key.split('/')[1:]) for el in spkr_dataset]
+        for el in spkr_dataset:
+          if el.key.endswith('.npz-2'):
+            tmp_tot_list.append("/".join(el.key.split('/')[1:]))
         tmp_val_list = random.sample(tmp_tot_list,len(tmp_tot_list)//10)
         val_list += tmp_val_list
-      print(val_list)
+      print("VAL_LIST",val_list,flush=True)
       
       # rearrange to structure
       print("rearrange start",flush=True)
       for rootpath,dirs,files in os.walk(str(args.folder)):
         for file in files:
-          if file.find('.wav')==-1:
-            continue
           filepath = os.path.join(rootpath,file)
           search_key = reconstruct_path(file)
           if search_key in val_list:
@@ -188,6 +194,7 @@ def main():
       print("scanning list of files...",flush=True)
       for rootpath,dirs,files in os.walk(str(args.folder)):
         for file in files:
+          #print(filepath)
           filepath = os.path.join(rootpath,file)
           if filepath.find('.wav')!=-1:
             tot_list.append(filepath)

@@ -2,10 +2,11 @@
 .idea/
 asset1/*
 asset2/*
+asset*
+ckpt
+backup
 
 # configuration
-config/*
-!config/default.yaml
 
 # logs, checkpoints
 chkpt/

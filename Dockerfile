@@ -48,4 +48,6 @@ EXPOSE 6004
 
 COPY . /app
 
-CMD ["sleep", "infinity"]
+ENTRYPOINT ["bash", "./entrypoint.sh"]
+
+CMD ["start"]
