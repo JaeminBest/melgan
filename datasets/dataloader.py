@@ -17,12 +17,12 @@ def files_to_list(filename):
 
     files = [f.rstrip() for f in files]
     return files
-
-
+    
+    
 def create_dataloader(hp, args, train):
     dataset = MelFromDisk(hp, args, train)
 
-    if train:
+    if train==1:
         return DataLoader(dataset=dataset, batch_size=hp.train.batch_size, shuffle=True,
             num_workers=hp.train.num_workers, pin_memory=True, drop_last=True)
     else:
@@ -35,7 +35,13 @@ class MelFromDisk(Dataset):
         self.hp = hp
         self.args = args
         self.train = train
-        self.path = hp.data.train if train else hp.data.validation
+        if train==1:
+            self.path = hp.data.train
+        elif train==0:
+            self.path = hp.data.validation
+        elif train==-1:
+            self.path = hp.data.total
+            
         #self.wav_list = glob.glob(os.path.join(self.path, '**', '*.wav'), recursive=True)
         self.wav_list = files_to_list(self.path)
         self.mel_segment_length = hp.audio.segment_length // hp.audio.hop_length + 2
@@ -45,7 +51,7 @@ class MelFromDisk(Dataset):
         return len(self.wav_list)
 
     def __getitem__(self, idx):
-        if self.train:
+        if self.train==1:
             idx1 = idx
             idx2 = self.mapping[idx1]
             return self.my_getitem(idx1), self.my_getitem(idx2)
@@ -70,13 +76,13 @@ class MelFromDisk(Dataset):
             audio = torch.from_numpy(audio).unsqueeze(0)
             mel = torch.from_numpy(mel).squeeze(0)
 
-            if self.train:
+            if self.train==1:
                 #print("=============================",flush=True)
                 
                 max_mel_start = mel.size(1) - self.mel_segment_length
                 #print("max_mel_start: ",max_mel_start,flush=True)
-                try: mel_start = random.randint(0, max_mel_start)
-                except: print("mel_start: ",mel_start,flush=True)
+                mel_start = random.randint(0, max_mel_start)
+                #print("mel_start: ",mel_start,flush=True)
                 mel_end = mel_start + self.mel_segment_length
                 #print("mel_end: ",mel_end,flush=True)
                 mel = mel[:, mel_start:mel_end]

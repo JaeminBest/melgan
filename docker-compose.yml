@@ -19,7 +19,7 @@ services:
       - "./.env"
     volumes:
       - "./:/app"
-      - "/home/mindlogic-workstation-3/vocoder_data/LJSpeech-1.1/wavs:/data"
+      - "//home/yongwoo_ryan_kim_gmail_com/vocoder_data/LJSpeech-1.1/wavs:/data"
       - "./asset1:/app/data"
 
   # # exp2 : custom + SR 22050
@@ -93,7 +93,7 @@ services:
       - "./.env"
     volumes:
       - "./:/app"
-      - "/home/mindlogic-workstation-3/vocoder_data/taco2-conn:/data"
+      - "/home/yongwoo_ryan_kim_gmail_com/vocoder_data/taco2-conn:/data"
       - "./asset4:/app/data"
 
 networks: { mindlogic-network: {} }

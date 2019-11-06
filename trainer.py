@@ -4,7 +4,7 @@ import logging
 import argparse
 import shutil
 
-from utils.train import train
+from utils.train import train, data_check
 from utils.hparams import HParam
 from utils.writer import MyWriter
 from datasets.dataloader import create_dataloader
@@ -45,7 +45,6 @@ if __name__ == '__main__':
         ]
     )
     logger = logging.getLogger()
-
     writer = MyWriter(hp, log_dir)
 
     assert hp.audio.hop_length == 256, \
@@ -53,7 +52,13 @@ if __name__ == '__main__':
     assert hp.data.train != '' and hp.data.validation != '', \
         'hp.data.train and hp.data.validation can\'t be empty: please fix %s' % args.config
 
-    trainloader = create_dataloader(hp, args, True)
-    valloader = create_dataloader(hp, args, False)
+    # check invalid data
+    if not args.checkpoint_path:
+        checkloader = create_dataloader(hp, args, -1)
+        data_check(args,checkloader,hp,hp_str) # take 3 hours
+        os.system("python data_preparation.py --folder /data -s -d")
+    
+    trainloader = create_dataloader(hp, args, 1)
+    valloader = create_dataloader(hp, args, 0)
 
     train(args, pt_dir, args.checkpoint_path, trainloader, valloader, writer, logger, hp, hp_str)

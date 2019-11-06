@@ -10,7 +10,19 @@ import traceback
 from model.generator import Generator
 from model.multiscale import MultiScaleDiscriminator
 from .utils import get_commit_hash
-from .validation import validate
+from .validation import validate, check
+
+
+def data_check(args,checkloader,hp,hp_str):
+    model_g = Generator(hp.audio.n_mel_channels).cuda()
+    model_d = MultiScaleDiscriminator().cuda()
+    step = 0
+    model_g.train()
+    model_d.train()
+    idx_list = list()
+    with torch.no_grad():
+        check(hp, args, model_g, model_d, checkloader, step)
+    return
 
 
 def train(args, pt_dir, chkpt_path, trainloader, valloader, writer, logger, hp, hp_str):
@@ -62,6 +74,10 @@ def train(args, pt_dir, chkpt_path, trainloader, valloader, writer, logger, hp, 
             trainloader.dataset.shuffle_mapping()
             loader = tqdm.tqdm(trainloader, desc='Loading train data')
             for (melG, audioG), (melD, audioD) in loader:
+                # print("melG shape", melG.shape,flush=True)
+                # print("audioG shape", audioG.shape,flush=True)
+                # print("melD shape", melD.shape,flush=True)
+                # print("audioD shape", audioD.shape,flush=True)
                 melG = melG.cuda()
                 audioG = audioG.cuda()
                 melD = melD.cuda()
@@ -72,6 +88,9 @@ def train(args, pt_dir, chkpt_path, trainloader, valloader, writer, logger, hp, 
                 fake_audio = model_g(melG)[:, :, :hp.audio.segment_length]
                 disc_fake = model_d(fake_audio)
                 disc_real = model_d(audioG)
+                # print("disc_fake shape", disc_fake.shape,flush=True)
+                # print("disc_real shape", disc_real.shape,flush=True)
+                
                 loss_g = 0.0
                 for (feats_fake, score_fake), (feats_real, _) in zip(disc_fake, disc_real):
                     loss_g += torch.mean(torch.sum(torch.pow(score_fake - 1.0, 2), dim=[1, 2]))

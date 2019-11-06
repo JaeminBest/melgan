@@ -1,6 +1,7 @@
 data: # root path of train/validation data (in absolute path)
   train: "/app/data/final_train.txt" # validation file
   validation: "/app/data/final_val.txt" # training file
+  total: "/app/data/final_tot.txt"
 ---
 train:
   rep_discriminator: 1

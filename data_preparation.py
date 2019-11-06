@@ -51,6 +51,7 @@ def parse_args():
   parser.add_argument("--data-param-path", type=Path, default='/app/params.json')
   parser.add_argument("--train-file", type=Path, default='/app/data/final_train.txt')
   parser.add_argument("--val-file", type=Path, default='/app/data/final_val.txt')
+  parser.add_argument("--tot-file", type=Path, default='/app/data/final_tot.txt')
   parser.add_argument('-c', type=bool, default=(True if os.environ.get('CUSTOM','')=='1' else False))
   parser.add_argument('-d', action='store_true') # download flag if you change params.json you need to set this flag
   parser.add_argument('-s', action='store_true') # setting training_file, validation_file
@@ -132,10 +133,25 @@ def main():
         dirpath = os.path.join(args.folder,'speaker-{}'.format(parse_id))
         if os.path.isdir(dirpath):
           shutil.rmtree(dirpath)
-    
     else:
       preprocess(str(args.folder))
+      
+      
+  if os.path.isfile(args.tot_file):
+    os.remove(args.tot_file)
+  tot_mapper = open(args.tot_file,'a')
   
+  for rootpath,dirs,files in os.walk(str(args.folder)):
+    for file in files:
+      filepath = os.path.join(rootpath,file)
+      if not args.c:
+        if file.find('.wav')==-1:
+          continue
+      else:
+        if file.find('.npz-2')==-1:
+          continue
+      tot_mapper.write(filepath+'\n')
+
   if args.s:
     invalid_data_checker(args,args.c)
     print("training/validation file selection start",flush=True)
@@ -187,7 +203,7 @@ def main():
             val_mapper.write(filepath+'\n')
           else:
             trn_mapper.write(filepath+'\n')
-      
+          
     else:
       tot_list = list()
       val_list = list()
@@ -209,6 +225,7 @@ def main():
 
     trn_mapper.close()
     val_mapper.close()
+    tot_mapper.close()
     
 
   print("finished",flush=True)
