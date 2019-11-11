@@ -3,6 +3,7 @@ import glob
 import tqdm
 import torch
 import argparse
+import numpy as np
 from scipy.io.wavfile import write
 
 from model.generator import Generator
@@ -21,29 +22,49 @@ def main(args):
     model = Generator(hp.audio.n_mel_channels).cuda()
     model.load_state_dict(checkpoint['model_g'])
     model.eval(inference=False)
+    
+    if args.f:
+        with torch.no_grad():
+            for melpath in tqdm.tqdm(glob.glob(os.path.join(args.input_folder, '*.npy'))):
+                mel = np.load(melpath)
+                
+                if mel.shape[0] != 80:
+                    mel = mel.T
 
-    with torch.no_grad():
-        for melpath in tqdm.tqdm(glob.glob(os.path.join(args.input_folder, '*.mel'))):
-            mel = torch.load(melpath)
-            if len(mel.shape) == 2:
+                assert mel.shape[0] == 80
+                mel = torch.from_numpy(mel).type(torch.FloatTensor)
                 mel = mel.unsqueeze(0)
-            mel = mel.cuda()
+                mel = mel.cuda()
 
-            audio = model.inference(mel)
-            audio = audio.cpu().detach().numpy()
+                audio = model.inference(mel)
+                audio = audio.cpu().detach().numpy()
 
-            out_path = melpath.replace('.mel', '_reconstructed_epoch%04d.wav' % checkpoint['epoch'])
-            write(out_path, hp.audio.sampling_rate, audio)
+                out_path = melpath.replace('.npy', '_reconstructed_epoch%04d.wav' % checkpoint['epoch'])
+                write(out_path, hp.audio.sampling_rate, audio)
+    else:
+        with torch.no_grad():
+            for melpath in tqdm.tqdm(glob.glob(os.path.join(args.input_folder, '*.mel'))):
+                mel = torch.load(melpath)
+                if len(mel.shape) == 2:
+                    mel = mel.unsqueeze(0)
+                mel = mel.cuda()
+
+                audio = model.inference(mel)
+                audio = audio.cpu().detach().numpy()
+
+                out_path = melpath.replace('.mel', '_reconstructed_epoch%04d.wav' % checkpoint['epoch'])
+                write(out_path, hp.audio.sampling_rate, audio)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', type=str, default=None,
+    parser.add_argument('-c', '--config', type=str, default='/app/config/custom.yaml',
                         help="yaml file for config. will use hp_str from checkpoint if not given.")
     parser.add_argument('-p', '--checkpoint_path', type=str, required=True,
                         help="path of checkpoint pt file for evaluation")
     parser.add_argument('-i', '--input_folder', type=str, required=True,
                         help="directory of mel-spectrograms to invert into raw audio. ")
+    parser.add_argument('-f',action='store_true')
     args = parser.parse_args()
 
     main(args)
