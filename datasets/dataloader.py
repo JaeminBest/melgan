@@ -5,7 +5,7 @@ import random
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
-from utils.utils import read_wav_np
+from ..utils.utils import read_wav_np
 
 
 def files_to_list(filename):

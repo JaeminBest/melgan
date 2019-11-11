@@ -6,12 +6,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 import itertools
 import traceback
+import time
 
-from model.generator import Generator
-from model.multiscale import MultiScaleDiscriminator
+from ..model.generator import Generator
+from ..model.multiscale import MultiScaleDiscriminator
 from .utils import get_commit_hash
 from .validation import validate, check
+from ..models import *
+from ..credential import s3
+from django.db.models import Count, F, Q, Avg, Max, Min, Sum, Value
 
+def delete_duplicants(log_id,num_step):
+    ckpts = TakeVcd.objects.filter(Q(num_step=num_step) & Q(log__id=log_id)).delete()
 
 def data_check(args,checkloader,hp,hp_str):
     model_g = Generator(hp.audio.n_mel_channels).cuda()
@@ -25,7 +31,7 @@ def data_check(args,checkloader,hp,hp_str):
     return
 
 
-def train(args, pt_dir, chkpt_path, trainloader, valloader, writer, logger, hp, hp_str):
+def train(args, pt_dir, chkpt_path, trainloader, valloader, writer, logger, hp, hp_str, log_id):
     model_g = Generator(hp.audio.n_mel_channels).cuda()
     model_d = MultiScaleDiscriminator().cuda()
 
@@ -144,7 +150,16 @@ def train(args, pt_dir, chkpt_path, trainloader, valloader, writer, logger, hp, 
                     'githash': githash,
                 }, save_path)
                 logger.info("Saved checkpoint to: %s" % save_path)
-
+                
+                # save checkpoint
+                delete_duplicants(log_id,epoch)
+                tklog = TakeLog.objects.get(pk=log_id)
+                new_ckpt = TakeVcd(log=tklog,num_step=epoch,ckpt_url='take/{}/vcd/{}.pyt',format(log_id,epoch))
+                new_ckpt.save()
+                with open(save_path,'rb') as f:
+                    s3.Object('mindlogic-tts','take/{}/vcd/{}.pyt'.format(log_id,epoch)).put(Body=f)
+                os.remove(save_path)
+                
     except Exception as e:
         logger.info("Exiting due to exception: %s" % e)
         traceback.print_exc()

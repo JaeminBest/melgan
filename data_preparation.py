@@ -10,72 +10,56 @@ else:
 
 
 import os
-import sys
-sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-
 from pathlib import Path
 from tqdm import tqdm
 from librosa.core import load
 import argparse
 import json
 import librosa
+import subprocess
+import multiprocessing as mp
 import shutil
 import torch
 import numpy as np
 import random
 
-from utils.credential import s3
-from preprocess import preprocess
+from ..credential import s3
+from ..models import *
 
-
-def span_path(args,full_filepath):
-  path_cvt = Path(full_filepath)
-  if args.folder==path_cvt.parents[0]:
-    return full_filepath
-  parse_speaker_id = full_filepath.split('/')[-4].split('-')[-1]
-  parse_file_id = full_filepath.split('/')[-3].split('-')[-1]
-  parse_filename = full_filepath.split('/')[-1]
-  new_path = args.folder / Path("{}-{}-{}".format(parse_speaker_id,parse_file_id,parse_filename))
-  os.system('mv {} {}'.format(full_filepath,str(new_path)))
-  return new_path
-
-def reconstruct_path(key):
-  ky = key.split('.npz-2')[0]
-  splits = ky.split('-')
-  #print(splits)
-  return "speaker-{}/file-{}/mel/{}.npz-2".format(splits[0],splits[1],splits[2])
 
 def parse_args():
   parser = argparse.ArgumentParser()
-  parser.add_argument("--folder", type=Path, required=True)
+  parser.add_argument("--folder", type=Path, default='/app/data/train')
   parser.add_argument("--data-param-path", type=Path, default='/app/params.json')
   parser.add_argument("--train-file", type=Path, default='/app/data/final_train.txt')
   parser.add_argument("--val-file", type=Path, default='/app/data/final_val.txt')
   parser.add_argument("--tot-file", type=Path, default='/app/data/final_tot.txt')
-  parser.add_argument('-c', type=bool, default=(True if os.environ.get('CUSTOM','')=='1' else False))
-  parser.add_argument('-d', action='store_true') # download flag if you change params.json you need to set this flag
-  parser.add_argument('-s', action='store_true') # setting training_file, validation_file
-  args = parser.parse_args()
+  args = parser.parse_args([])
   return args
 
 # assume that data already spanned
-def invalid_data_checker(args,custom_flg):
+def invalid_data_checker(args,tot_list):
   print("start invalid data checker",flush=True)
-  search_key = '.npz-2' if custom_flg else '.wav'
   for rootpath,dirs,files in os.walk(str(args.folder)):
     for file in files:
       filepath = os.path.join(rootpath,file)
-      if file.find(search_key)==-1:
-        if search_key=='.wav':
-          if file.find('.mel')==-1:
-            os.remove(filepath)
-        continue
-      if custom_flg and (not range_test(filepath)):
+      if not range_test(filepath):
         os.remove(filepath)
+        tot_list.remove(int(file.split('.npz')[0]))
         print("deleted!!", filepath,flush=True)
         continue
+  return tot_list
       
-      
+def files_to_list(filename):
+    """
+    Takes a text file of filenames and makes a list of filenames
+    """
+    with open(filename, encoding="utf-8") as f:
+        files = f.readlines()
+
+    files = [f.rstrip() for f in files]
+    return files      
+
 def range_test(melpath):
   npzzz = np.load(melpath)
   audio = npzzz['audio']
@@ -89,71 +73,53 @@ def range_test(melpath):
     return False
   return True
 
+def pre_exist_check(log_id):
+  bucket = s3.Bucket('mindlogic-tts')
+  pre_exist_data = bucket.objects.filter(Prefix='take/{}/final_train.txt'.format(log_id)).all()
+  datalist = [el.key for el in pre_exist_data]
+  if datalist.find('take/{}/final_train.txt'.format(log_id))==-1:
+    return False
+  return True
 
-def main():
+def multi_s3_download(root,split_id, mel_path):
+  print("[DOWNLOAD START] split id: {}".format(split_id),flush=True)
+  new_path = root / Path("{}.npz".format(split_id))
+  if os.path.isfile(str(new_path)):
+    return
+  s3.Object('mindlogic-tts',mel_path.split+'-2').download_file(str(new_path))
+  return
+
+
+def preparation(log_id:int, step:int):
   args = parse_args()
   args.folder.mkdir(exist_ok=True, parents=True)
-    
-  # download from s3
-  if not args.d:
-    # custom dataset
-    if args.c:
-      # json load
-      with open(args.data_param_path) as f:
-        json_data = json.load(f)
-      data_list = json_data['data']
-      
-      # data download
-      for data in data_list:
-        parse_id = int(data.split('-')[-1])
-        parse_type = data.split('-')[0]
-        
-        if parse_type=='nltk':
-          dirpath = args.folder / Path('speaker-{}'.format(parse_id))
-          os.makedirs(str(dirpath),exist_ok=True)
-          os.system("aws s3 cp s3://mindlogic-tts/nltk/speaker-{} {} --recursive".format(parse_id,os.path.join(*dirpath.parts)))
-        else:
-          dirpath = args.folder/Path('speaker-{}'.format(parse_id))
-          os.makedirs(str(dirpath),exist_ok=True)
-          os.system("aws s3 cp s3://mindlogic-tts/celeb/speaker-{} {} --recursive".format(parse_id,os.path.join(*dirpath.parts)))
-      
-      # rearrange to structure
-      print("rearrange start",flush=True)
-      for rootpath,dirs,files in os.walk(str(args.folder)):
-        for file in files:
-          filepath = os.path.join(rootpath,file)
-          if (file.find('.npz-2')!=-1):
-            new_path = span_path(args,filepath)
+  
+  tklog = TakeLog.objects.get(pk=log_id)
+  speaker_list = tklog.speaker_list
+  
+  # download from s3 (step 1)
+  if step==1:
+    # data download using multiprocess pool
+    with mp.Pool(processes=3) as pool:
+      pool.map(multi_s3_download,[(args.folder, el.id, el.mel_path,) for el in tklog.bucket.data.all()])
 
-      print("dummy clean start",flush=True)
-      # delete dummy directory
-      for data in data_list:
-        parse_id = int(data.split('-')[-1])
-        parse_type = data.split('-')[0]
-        dirpath = os.path.join(args.folder,'speaker-{}'.format(parse_id))
-        if os.path.isdir(dirpath):
-          shutil.rmtree(dirpath)
-    else:
-      preprocess(str(args.folder))
-      
-      
+  # default step
   if os.path.isfile(args.tot_file):
     os.remove(args.tot_file)
   tot_mapper = open(args.tot_file,'a')
-  
+  tot_list = list()
   for rootpath,dirs,files in os.walk(str(args.folder)):
     for file in files:
       filepath = os.path.join(rootpath,file)
-      if not args.c:
-        if file.find('.wav')==-1:
-          continue
-      else:
-        if file.find('.npz-2')==-1:
-          continue
+      if file.find('.npz')==-1:
+        continue
+      tot_list.append(file.split('.npz')[0])
       tot_mapper.write(filepath+'\n')
-
-  if args.s:
-    invalid_data_checker(args,args.c)
+  tot_mapper.close()
+    
+  # training/validation set selection (step 2)
+  if step==2:
+    val_list = list()
     print("training/validation file selection start",flush=True)
     if os.path.isfile(args.train_file):
       os.remove(args.train_file)
@@ -161,76 +127,81 @@ def main():
     if os.path.isfile(args.val_file):
       os.remove(args.val_file)
     val_mapper = open(args.val_file,'a')
+    if os.path.isfile(args.tot_file):
+      os.remove(args.tot_file)
+    tot_mapper = open(args.tot_file,'a')
     
-    if args.c:
-      # json load
-      with open(args.data_param_path) as f:
-        json_data = json.load(f)
-      data_list = json_data['data']
-      
-      # data download + random validation selection
-      bucket = s3.Bucket('mindlogic-tts')
-      val_list = list()
-      for data in data_list:
-        parse_id = int(data.split('-')[-1])
-        parse_type = data.split('-')[0]
-        tmp_tot_list = list()
-        tmp_val_list = list()
-        
-        if parse_type=='nltk':
-          dirpath = args.folder / Path('speaker-{}'.format(parse_id))
-          os.makedirs(str(dirpath),exist_ok=True)
-          spkr_dataset = bucket.objects.filter(Prefix='nltk/speaker-{}/'.format(parse_id)).all()
-        else:
-          dirpath = args.folder/Path('speaker-{}'.format(parse_id))
-          os.makedirs(str(dirpath),exist_ok=True)
-          spkr_dataset = bucket.objects.filter(Prefix='celeb/speaker-{}/'.format(parse_id)).all()
-        
-        for el in spkr_dataset:
-          if el.key.endswith('.npz-2'):
-            tmp_tot_list.append("/".join(el.key.split('/')[1:]))
-        tmp_val_list = random.sample(tmp_tot_list,len(tmp_tot_list)//10)
-        val_list += tmp_val_list
-      print("VAL_LIST",val_list,flush=True)
-      
-      # rearrange to structure
-      print("rearrange start",flush=True)
-      for rootpath,dirs,files in os.walk(str(args.folder)):
-        for file in files:
-          filepath = os.path.join(rootpath,file)
-          search_key = reconstruct_path(file)
-          if search_key in val_list:
-            val_mapper.write(filepath+'\n')
-          else:
-            trn_mapper.write(filepath+'\n')
-          
-    else:
-      tot_list = list()
-      val_list = list()
-      print("scanning list of files...",flush=True)
-      for rootpath,dirs,files in os.walk(str(args.folder)):
-        for file in files:
-          #print(filepath)
-          filepath = os.path.join(rootpath,file)
-          if filepath.find('.wav')!=-1:
-            tot_list.append(filepath)
-      val_list = random.sample(tot_list,len(tot_list)//10)
-      
-      print("writing file list...")
-      for el in tot_list:
-        if el in val_list:
-          val_mapper.write(el+'\n')
-        else:
-          trn_mapper.write(el+'\n')
-
-    trn_mapper.close()
-    val_mapper.close()
+    tot_list = invalid_data_checker(args,tot_list)
+    
+    for el in tot_list:
+      filepath = str(args.folder/Path("{}.npz".format(el)))
+      tot_mapper.write(filepath+'\n')
     tot_mapper.close()
     
+    # data download + random validation selection
+    bucket = s3.Bucket('mindlogic-tts')
+    
+    for speaker_id in speaker_list:
+      tar_spkr = Speaker.objects.get(pk=speaker_id)
+      parse_type = "nltk" if tar_spkr.augflag==5 else "celeb"
+      tmp_val_list = list()
+      
+      if parse_type=='nltk':
+        dirpath = args.folder / Path('speaker-{}'.format(speaker_id))
+        os.makedirs(str(dirpath),exist_ok=True)
+        spkr_dataset = bucket.objects.filter(Prefix='nltk/speaker-{}/'.format(speaker_id)).all()
+      else:
+        dirpath = args.folder/Path('speaker-{}'.format(speaker_id))
+        os.makedirs(str(dirpath),exist_ok=True)
+        spkr_dataset = bucket.objects.filter(Prefix='celeb/speaker-{}/'.format(speaker_id)).all()
+      
+      for el in spkr_dataset:
+        parse_split_id = int(el.key.split('/')[-1].split('.')[0])
+        tmp_tot_list = []
+        if el.key.endswith('.npz-2') and os.path.isfile(str(args.folder/Path("{}.npz".format(parse_split_id)))):
+          tmp_tot_list.append("/".join(el.key.split('/')[1:]))
+      tmp_val_list = random.sample(tmp_tot_list,len(tmp_tot_list)//10)
+      val_list += tmp_val_list
+    print("VAL_LIST",val_list,flush=True)
+    
+    # rearrange to structure
+    for rootpath,dirs,files in os.walk(str(args.folder)):
+      for file in files:
+        filepath = os.path.join(rootpath,file)
+        search_key = int(file.split('.npz')[0])
+        if search_key in val_list:
+          val_mapper.write(filepath+'\n')
+        else:
+          trn_mapper.write(filepath+'\n')
+          
+    trn_mapper.close()
+    val_mapper.close()
+    
+    with open(args.train_file,'r') as f:
+      s3.Object('mindlogic-tts','take/{}/final_train.txt'.format(log_id)).put(Body=f)
+    with open(args.val_file,'r') as f:
+      s3.Object('mindlogic-tts','take/{}/final_val.txt'.format(log_id)).put(Body=f)
+    with open(args.tot_file,'r') as f:
+      s3.Object('mindlogic-tts','take/{}/final_tot.txt'.format(log_id)).put(Body=f)
 
+  # load checkpoint and resume training (step 3)
+  if step==3:
+    if pre_exist_check(log_id):
+      s3.Object('mindlogic-tts','take/{}/final_train.txt'.format(log_id)).download_file('/app/data/final_train.txt')
+      s3.Object('mindlogic-tts','take/{}/final_val.txt'.format(log_id)).download_file('/app/data/final_val.txt')
+      s3.Object('mindlogic-tts','take/{}/final_tot.txt'.format(log_id)).download_file('/app/data/final_tot.txt')
+    else:
+      return
+    
+    tmp_totlist = files_to_list('/app/data/final_tot.txt')
+    totlist = [int(el.split('/')[-1].split('.npz')[0]) for el in tmp_totlist]
+    splitlist = SplitSource.objects.filter(pk__in=totlist)
+    
+    with mp.Pool(processes=3) as pool:
+      pool.map(multi_s3_download,[(args.folder, el.id, el.mel_path,) for el in splitlist])
+  
   print("finished",flush=True)
   
 
-if __name__ == "__main__":
-  main()
-
+def transfer_preparation(log_id:int, ckpt_id:int, step:int):
+  return

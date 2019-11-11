@@ -3,7 +3,7 @@ from data_preparation import reconstruct_path
 
 import os
 import sys
-from utils.credential import s3
+from ..credential import s3
 from pathlib import Path
 from tqdm import tqdm
 from librosa.core import load

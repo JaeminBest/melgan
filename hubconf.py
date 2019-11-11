@@ -1,6 +1,6 @@
 dependencies = ['torch']
 import torch
-from model.generator import Generator
+from .model.generator import Generator
 
 model_params = {
     'nvidia_tacotron2_LJ11_epoch3200': {
